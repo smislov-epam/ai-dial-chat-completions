@@ -1,32 +1,46 @@
 import asyncio
+from dotenv import load_dotenv
+
+# Load environment variables before importing modules that read env values.
+load_dotenv(override=True)
 
 from task.clients.client import DialClient
-from task.constants import DEFAULT_SYSTEM_PROMPT
+from task.clients.custom_client import CustomDialClient
+from task.constants import DEFAULT_SYSTEM_PROMPT, API_KEY
 from task.models.conversation import Conversation
 from task.models.message import Message
 from task.models.role import Role
 
 
 async def start(stream: bool) -> None:
-    #TODO:
-    # 1.1. Create DialClient
-    # (you can get available deployment_name via https://ai-proxy.lab.epam.com/openai/models
-    #  you can import Postman collection to make a request, file in the project root `dial-basics.postman_collection.json`
-    #  don't forget to add your API_KEY)
-    # 1.2. Create CustomDialClient
-    # 2. Create Conversation object
-    # 3. Get System prompt from console or use default -> constants.DEFAULT_SYSTEM_PROMPT and add to conversation
-    #    messages.
-    # 4. Use infinite cycle (while True) and get yser message from console
-    # 5. If user message is `exit` then stop the loop
-    # 6. Add user message to conversation history (role 'user')
-    # 7. If `stream` param is true -> call DialClient#stream_completion()
-    #    else -> call DialClient#get_completion()
-    # 8. Add generated message to history
-    # 9. Test it with DialClient and CustomDialClient
-    # 10. In CustomDialClient add print of whole request and response to see what you send and what you get in response
-    raise NotImplementedError
+    if not API_KEY:
+        raise RuntimeError("DIAL_API_KEY is missing. Set it in your environment or a .env file.")
+ 
+    deployment_name = "gpt-4o"
+    use_custom = input("Use CustomDialClient? (y/N): ").strip().lower() == "y"
+    client = CustomDialClient(deployment_name) if use_custom else DialClient()
 
+    # Create conversation and seed with system prompt.
+    conversation = Conversation(messages=[])
+    system_prompt = input("Enter system prompt (leave empty for default): ").strip() or DEFAULT_SYSTEM_PROMPT
+    conversation.messages.append(Message(role=Role.SYSTEM, content=system_prompt))
+
+    while True:
+        user_message = input("You: ").strip()
+        if user_message.lower() == "exit":
+            break
+
+        conversation.messages.append(Message(role=Role.USER, content=user_message))
+
+        if stream:
+            # Stream tokens from the API and collect the final content.
+            assistant_msg = await client.stream_completion(conversation.messages)
+        else:
+            # Run blocking completion call in a thread to avoid blocking the event loop.
+            assistant_msg = await asyncio.to_thread(client.get_completion, conversation.messages)
+
+        conversation.messages.append(assistant_msg)
+        print(f"\nAssistant: {assistant_msg.content}\n")
 
 asyncio.run(
     start(True)
